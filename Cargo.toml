@@ -1,0 +1,70 @@
+[package]
+# TODO fix `authors` and `name` if you didn't use `cargo-generate`
+name = "control-module"
+edition = "2021"
+version = "0.1.0"
+authors = ["deltronix <douwe@deltronix.nl>"]
+
+[dependencies]
+cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
+defmt = { version = "0.3", features = ["encoding-rzcobs"] }
+defmt-brtt = { version = "0.1", default-features = false, features = ["rtt"] }
+panic-probe = { version = "0.3", features = ["print-defmt"] }
+# TODO(4) Select the correct rtic backend
+rtic = { version = "2.0.1", features = [ "thumbv7-backend" ] }
+# TODO(5) Add hal as dependency
+stm32f4xx-hal = { version = "0.17.1", features = [ "stm32f405", "rtic", "defmt" ] }
+st7565 = { path = "../st7565" }
+embedded-hal = "0.2.7"
+display-interface-spi = "0.4.1"
+embedded-graphics = "0.8.1"
+rtic-monotonics = { version = "1.0.0", features = ["cortex-m-systick", "defmt"] }
+dwt-systick-monotonic = {version="1.1.0", features=["extend"]}
+heapless = { version = "0.7.16", features = ["defmt", "defmt-impl"] }
+
+
+# cargo build/run
+[profile.dev]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = "s" # <-
+overflow-checks = true # <-
+
+# cargo test
+[profile.test]
+codegen-units = 1
+debug = 2
+debug-assertions = true # <-
+incremental = false
+opt-level = "s" # <-
+overflow-checks = true # <-
+
+# cargo build/run --release
+[profile.release]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = "s" # <-
+overflow-checks = false # <-
+
+# cargo test --release
+[profile.bench]
+codegen-units = 1
+debug = 2
+debug-assertions = false # <-
+incremental = false
+lto = 'fat'
+opt-level = "s" # <-
+overflow-checks = false # <-
+
+# uncomment this to switch from the crates.io version of defmt to its git version
+# check app-template's README for instructions
+# [patch.crates-io]
+# defmt = { git = "https://github.com/knurling-rs/defmt", rev = "use defmt version reported by `probe-run --version`" }
+# defmt-rtt = { git = "https://github.com/knurling-rs/defmt", rev = "use defmt version reported by `probe-run --version`" }
+# defmt-test = { git = "https://github.com/knurling-rs/defmt", rev = "use defmt version reported by `probe-run --version`" }
+# panic-probe = { git = "https://github.com/knurling-rs/defmt", rev = "use defmt version reported by `probe-run --version`" }

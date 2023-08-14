@@ -14,7 +14,7 @@ panic-probe = { version = "0.3", features = ["print-defmt"] }
 rtic = { version = "2.0.1", features = [ "thumbv7-backend" ] }
 # TODO(5) Add hal as dependency
 stm32f4xx-hal = { version = "0.17.1", features = [ "stm32f405", "rtic", "defmt" ] }
-st7565 = { path = "../st7565" }
+st7565 = { git = "https://www.github.com/deltronix/st7565" }
 embedded-hal = "0.2.7"
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.8.1"

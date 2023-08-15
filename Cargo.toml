@@ -21,6 +21,7 @@ embedded-graphics = "0.8.1"
 rtic-monotonics = { version = "1.0.0", features = ["cortex-m-systick", "defmt"] }
 dwt-systick-monotonic = {version="1.1.0", features=["extend"]}
 heapless = { version = "0.7.16", features = ["defmt", "defmt-impl"] }
+embedded-menu = { git = "https://github.com/deltronix/embedded-menu/", version = "0.3.1" }
 
 
 # cargo build/run

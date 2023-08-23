@@ -17,7 +17,7 @@ use heapless::String;
 use embedded_hal::spi::MODE_3;
 use rtic::app;
 use rtic_monotonics::systick::*;
-use rtic_monotonics::systick::fugit::{Instant};
+use rtic_monotonics::systick::fugit::TimerInstantU32;
 use rtic_monotonics::Monotonic;
 use st7565::{displays::DOGL128_6_EXT12V, GraphicsMode, GraphicsPageBuffer, ST7565};
 use stm32f4xx_hal::prelude::*;
@@ -32,8 +32,6 @@ use core::fmt::Write;
     dispatchers = [TIM3]
 )]
 mod app {
-
-
     use super::*;
     type DisplayType = ST7565<
         SPIInterface<Spi2, Pin<'B', 11, Output>, Pin<'B', 12, Output>>,
@@ -46,15 +44,12 @@ mod app {
     #[shared]
     struct Shared {
         disp: &'static mut DisplayType,
-        fps: f32,
     }
 
     // Local resources go here
     #[local]
     struct Local {
-        pos: i32,
-        last_disp_update: Instant<u32, 1, 1000>,
-        // TODO: Add resources
+        t_init: TimerInstantU32<1_000>,
     }
 
 
@@ -130,8 +125,9 @@ mod app {
         render::spawn().ok();
         update::spawn().ok();
         
-        (Shared { disp: display, fps: 0.0 }, Local { pos: 0,
-        last_disp_update: Systick::now()})
+        (
+            Shared { disp: display }, 
+            Local { t_init: Systick::now()})
     }
 
     // Optional idle, can be removed if not needed.
@@ -140,33 +136,18 @@ mod app {
     async fn update(_: update::Context){
         loop{
             task1::spawn().ok();
-            Systick::delay(200.millis()).await;
+            Systick::delay(1000.millis()).await;
             task2::spawn().ok();
-            Systick::delay(200.millis()).await;
+            Systick::delay(1000.millis()).await;
         }
     }
-    #[task(priority = 1, shared=[disp, fps], local=[last_disp_update])]
+    #[task(priority = 0, shared=[disp])]
     async fn render(mut cx: render::Context) {
-        
         loop {
-            let mut text: String<16> = String::new();
-            let t: Instant<u32, 1, 1000> = Systick::now();
-            let t_dif = t.checked_duration_since(*cx.local.last_disp_update);
-            match t_dif {
-                Some(t_dif) => {
-                    cx.shared.fps.lock(|fps|{
-
-                        *fps = 1000.0 / t_dif.to_millis() as f32;
-                    }); 
-
-                    *cx.local.last_disp_update = t;
-                },
-                None => {},
-            }
             cx.shared.disp.lock(|disp|{
                 disp.flush().unwrap();
             });
-            Systick::delay(1.millis()).await;
+            Systick::delay(20.millis()).await;
         } 
     }
     #[task(priority = 1, shared=[disp])]
@@ -179,10 +160,10 @@ mod app {
                 .draw(*disp)
                 .unwrap();
         });
-        fps_counter::spawn().ok();
+        uptime_counter::spawn().ok();
     }
 
-    #[task(priority = 1, shared = [disp], local = [pos])]
+    #[task(priority = 1, shared = [disp])]
     async fn task2(mut cx: task2::Context){
         defmt::info!("task 2");
         let font = MonoTextStyle::new(&FONT_9X15, BinaryColor::On);
@@ -192,16 +173,16 @@ mod app {
                 .draw(*disp)
                 .unwrap();
         });
-        fps_counter::spawn().ok();
+        uptime_counter::spawn().ok();
     }
-    #[task(priority = 1, shared = [disp, fps])]
-    async fn fps_counter(mut cx: fps_counter::Context){
+    #[task(priority = 1, shared = [disp], local = [t_init])]
+    async fn uptime_counter(mut cx: uptime_counter::Context){
+        let t = Systick::now();
+        let uptime = t.checked_duration_since(*cx.local.t_init).unwrap();
         let fill = PrimitiveStyle::with_fill(BinaryColor::On);
         let font = MonoTextStyle::new(&FONT_5X7, BinaryColor::Off);
         let mut text: String<16> = String::new();
-        cx.shared.fps.lock(|fps|{
-            write!(text, "FPS: {:.2}", fps).unwrap();
-        });
+        write!(text, "UPTIME: {:02}:{:02}:{:02}", uptime.to_hours(), uptime.to_minutes() % 60, uptime.to_secs() % 60).unwrap();
         cx.shared.disp.lock(|disp|{
             Rectangle::new(Point::new(0, 56),Size::new(132,8)).into_styled(fill).draw(*disp).unwrap();
             Text::new(text.as_str(), Point::new(16, 62), font)

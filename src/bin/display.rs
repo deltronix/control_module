@@ -10,9 +10,10 @@ use embedded_graphics::{
     mono_font::{ascii::FONT_8X13, MonoTextStyle},
     pixelcolor::BinaryColor,
     prelude::*,
-    primitives::{Circle, PrimitiveStyle, Rectangle},
+    primitives::{PrimitiveStyle, Rectangle},
     text::Text,
 };
+
 use heapless::String;
 use embedded_hal::spi::MODE_3;
 use rtic::app;
@@ -52,14 +53,13 @@ mod app {
         t_init: TimerInstantU32<1_000>,
     }
 
-
     #[init(local = [
         disp: Option<DisplayType> = None,
         page_buffer: Option<GraphicsPageBuffer<132,8>> = None
     ])]
     fn init(cx: init::Context) -> (Shared, Local) {
         defmt::info!("init");
-        let mut rcc = cx.device.RCC.constrain();
+        let rcc = cx.device.RCC.constrain();
         let ccdr = rcc.cfgr.sysclk(48.MHz()).freeze();
 
         let systick_mono_token = rtic_monotonics::create_systick_token!();
@@ -92,6 +92,7 @@ mod app {
             gpioc.pc6.into_push_pull_output()
         };
 
+        
         spi2_flash_cs.set_high();
         spi2_disp_rst.set_high();
         spi2_disp_a0.set_high();
@@ -124,6 +125,7 @@ mod app {
 
         render::spawn().ok();
         update::spawn().ok();
+
         
         (
             Shared { disp: display }, 
@@ -189,6 +191,13 @@ mod app {
                 .draw(*disp)
                 .unwrap();
         });
+    }
+
+    #[task(binds = SPI1, local = [binary_counter: u16 = 0])]
+    fn spi1(cx: spi1::Context) {
+        *cx.local.binary_counter += 1;
+
+        defmt::info!("bin counter {}", cx.local.binary_counter);
     }
 }
 

@@ -10,14 +10,14 @@ use stm32f4xx_hal::spi::{Rx, Tx};
 use stm32f4xx_hal::dma::{Transfer, Stream2, Stream3, PeripheralToMemory, MemoryToPeripheral};
 use stm32f4xx_hal::gpio::*;
 use stm32f4xx_hal::pac;
-type Spi1DmaRx = Transfer<
+pub type Spi1DmaRx = Transfer<
     Stream2<pac::DMA2>,
     3,
     Rx<pac::SPI1>,
     PeripheralToMemory,
     P,
 >;
-type Spi1DmaTx = Transfer<
+pub type Spi1DmaTx = Transfer<
     Stream3<pac::DMA2>,
     3,
     Tx<pac::SPI1>,

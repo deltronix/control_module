@@ -10,18 +10,25 @@ cortex-m = { version = "0.7", features = ["critical-section-single-core"] }
 defmt = { version = "0.3", features = ["encoding-rzcobs"] }
 defmt-brtt = { version = "0.1", default-features = false, features = ["rtt"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
-# TODO(4) Select the correct rtic backend
-rtic = { version = "2.0.1", features = [ "thumbv7-backend" ] }
-# TODO(5) Add hal as dependency
-stm32f4xx-hal = { version = "0.17.1", features = [ "stm32f405", "rtic", "defmt" ] }
+# RTIC
+rtic = { version = "2.0.1", features = ["cortex-m", "rtic-monotonics", "thumbv7-backend"] }
+rtic-sync = "1.2.0"
+rtic-monotonics = "1.5.0"
+# HAL
+stm32f4xx-hal = { version = "0.20.0", features = ["stm32f405", "rtic2", "defmt", "rtic1"] }
 st7565 = { git = "https://www.github.com/deltronix/st7565" }
-embedded-hal = "0.2.7"
+embedded-hal = "1.0.0"
 display-interface-spi = "0.4.1"
 embedded-graphics = "0.8.1"
-rtic-monotonics = { version = "1.0.0", features = ["cortex-m-systick", "defmt"] }
 dwt-systick-monotonic = {version="1.1.0", features=["extend"]}
-heapless = { version = "0.7.16", features = ["defmt", "defmt-impl"] }
+heapless = { version = "0.8.0", features = ["defmt-03"] }
 embedded-menu = { git = "https://github.com/deltronix/embedded-menu/", version = "0.3.1" }
+statig = "0.3.0"
+bitfield-struct = "0.5.6"
+rtic-time = "1.3.0"
+fugit = { version = "0.3.7", features = ["defmt"] }
+stm32-metapac = { version = "15.0.0", features = ["stm32f405rg"] }
+atomic-polyfill = "1.0.3"
 
 
 # cargo build/run

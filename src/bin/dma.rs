@@ -38,7 +38,7 @@ type Spi1DmaTx = Transfer<
 mod app {
 
     use cortex_m::asm::delay;
-    use stm32f4xx_hal::hal_02::spi::MODE_0;
+    
 
     use super::*;
     #[shared]
@@ -129,7 +129,7 @@ mod app {
     // Optional idle, can be removed if not needed.
     //
     #[idle(shared = [spi1_rx_xfer])]
-    fn idle(mut cx: idle::Context) -> !{
+    fn idle(_cx: idle::Context) -> !{
         defmt::info!("idle start");
         loop{
             delay(168000000);
@@ -138,7 +138,7 @@ mod app {
         }
     }
     #[task(binds = DMA2_STREAM2, shared = [spi1_rx_xfer, spi1_rclk_ld], local = [spi1_rx_buffer])]
-    fn dma2_stream2_irq(mut cx: dma2_stream2_irq::Context){
+    fn dma2_stream2_irq(cx: dma2_stream2_irq::Context){
         let mut rx_transfer = cx.shared.spi1_rx_xfer;
         let mut latchdown = cx.shared.spi1_rclk_ld;
         let rx_buffer = cx.local.spi1_rx_buffer;
@@ -161,7 +161,7 @@ mod app {
     
     }
     #[task(binds = DMA2_STREAM3, shared = [spi1_tx_xfer], local = [spi1_tx_buffer])]
-    fn dma2_stream3_irq(mut cx: dma2_stream3_irq::Context){
+    fn dma2_stream3_irq(cx: dma2_stream3_irq::Context){
         let mut tx_transfer = cx.shared.spi1_tx_xfer;
         let tx_buffer = cx.local.spi1_tx_buffer;
 

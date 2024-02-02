@@ -8,7 +8,7 @@ use rtic_time::TimerQueue;
 use super::hal;
 
 
-const TIMER_FREQ: u32 = 84_000_000;
+pub const TIMER_FREQ: u32 = 84_000_000;
 
 static OVERFLOW_COUNTER: AtomicU64 = AtomicU64::new(0);
 static TIMER_QUEUE: TimerQueue<TempoTimer> = TimerQueue::<TempoTimer>::new();

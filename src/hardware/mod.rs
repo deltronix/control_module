@@ -1,6 +1,5 @@
 use core::cell::RefCell;
 
-use ad57xx::Ad57xx_exclusive;
 use display_interface_spi::SPIInterface;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
@@ -21,7 +20,6 @@ use stm32f4xx_hal as hal;
 
 pub(crate) mod debounce;
 pub mod display;
-pub mod io;
 pub mod project;
 pub mod switches;
 pub mod timer;
@@ -29,7 +27,6 @@ pub mod ui;
 use switches::Switches;
 
 use self::display::PageBufferType;
-use self::io::IO;
 use self::ui::UI;
 
 pub struct Hardware {

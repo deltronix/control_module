@@ -14,6 +14,7 @@ mod app {
     use core::cell::RefCell;
     use core::mem::MaybeUninit;
 
+    use ad57xx::Ad57xx_shared;
     use control_module::hardware::switches::{LedId, LedState, UiEvent};
     use control_module::hardware::timer::{TempoTimer, TIMER_FREQ};
     use control_module::hardware::ui::{UiStateMachine, UI};
@@ -43,17 +44,21 @@ mod app {
         clk_out: Pin<'C', 15, Output>,
         tap_tempo: TapTempo<84_000_000, 8>,
         clock_channel_sender: Sender<'static, SyncMsg, CAPACITY>,
-        spi_dev1: RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
         spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
+        dac: Ad57xx_shared<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>>
     }
     #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
         defmt::info!("init");
+
+        // Initialize hardware
         let hardware = control_module::hardware::setup(cx.device);
+
         // Setup shared bus on SPI3
         let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
         let spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
         let spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
+        let mut dac = Ad57xx_shared::new(spi_dev1);
 
         // Setup TempoTimer
         let systick_mono_token = rtic_monotonics::create_systick_token!();
@@ -81,16 +86,15 @@ mod app {
                 tap_tempo,
                 clock_channel_sender,
                 clk_out: hardware.clk_out,
-                spi_dev1,
+                dac,
                 spi_dev2,
             },
         )
     }
 
-    #[task(local = [spi_dev1])]
+    #[task(local = [dac])]
     async fn io(cx: io::Context){
-        use::ad57xx::Ad57xx_shared;
-        let mut dac = Ad57xx_shared::new(cx.local.spi_dev1);
+        let dac = cx.local.dac;
         dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
         dac
             .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)

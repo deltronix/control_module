@@ -99,6 +99,7 @@ mod app {
         read_ui::spawn(event_channel_sender.clone()).unwrap();
         test::spawn(clock_channel_receiver).unwrap();
         io::spawn().unwrap();
+        io2::spawn().unwrap();
         (
             Shared { ui: hardware.ui },
             Local {
@@ -113,7 +114,7 @@ mod app {
         )
     }
 
-    #[task(local = [spi_dev1, spi_dev2])]
+    #[task(local = [spi_dev1])]
     async fn io(mut cx: io::Context){
         use::ad57xx::Ad57xx_shared;
         let mut dac = Ad57xx_shared::new(cx.local.spi_dev1);
@@ -130,6 +131,12 @@ mod app {
         dac
             .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
             .unwrap();
+    }
+    #[task(local = [spi_dev2])]
+    async fn io2(mut cx: io2::Context){
+        let tx = [0b11001100; 2];
+        cx.local.spi_dev2.write(&tx).unwrap();
+
     }
     #[task(shared = [ui])]
     async fn read_ui(mut cx: read_ui::Context, mut sender: Sender<'static, UiEvent, CAPACITY>) {

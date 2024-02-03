@@ -1,7 +1,7 @@
 #![no_main]
 #![no_std]
 #![feature(type_alias_impl_trait)]
-use control_module::{self as _, hardware::io::IO}; // global logger + panicking-behavior + memory layout
+use control_module::{self as _}; // global logger + panicking-behavior + memory layout
 use rtic::app;
 
 
@@ -12,6 +12,7 @@ use rtic::app;
 )]
 mod app {
     use core::cell::RefCell;
+    use core::mem::MaybeUninit;
 
     use control_module::hardware::project::{Generator, Lane, Project};
     use control_module::hardware::switches::{LedId, LedState, UiEvent};
@@ -45,16 +46,24 @@ mod app {
         clk_out: Pin<'C', 15, Output>,
         tap_tempo: TapTempo<84_000_000, 8>,
         clock_channel_sender: Sender<'static, SyncMsg, CAPACITY>,
+        spi_dev1: RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
+        spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
     }
-    #[init]
+    #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
         defmt::info!("init");
         let hardware = control_module::hardware::setup(cx.device);
         let clk_in = hardware.clk_in;
-        let spi_bus = RefCell::new(hardware.spi3);
+        let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
 
-        let spi_dev1 = RefCellDevice::new(&spi_bus, hardware.io_sync, NoDelay);
+        let mut spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
 
+        let mut spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
+
+        let tx = [0b01010101; 2];
+        spi_dev2.write(&tx).unwrap();
+
+        /*
         let mut io = control_module::hardware::io::IO::new(spi_dev1, hardware.io_rclk);
         io.dac
             .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
@@ -68,6 +77,7 @@ mod app {
         io.dac
             .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
             .unwrap();
+        */
 
         let systick_mono_token = rtic_monotonics::create_systick_token!();
         Systick::start(cx.core.SYST, 168_000_000, systick_mono_token);
@@ -88,6 +98,7 @@ mod app {
         ev_handler::spawn(event_channel_receiver).unwrap();
         read_ui::spawn(event_channel_sender.clone()).unwrap();
         test::spawn(clock_channel_receiver).unwrap();
+        io::spawn().unwrap();
         (
             Shared { ui: hardware.ui },
             Local {
@@ -96,9 +107,29 @@ mod app {
                 tap_tempo,
                 clock_channel_sender,
                 clk_out: hardware.clk_out,
-                io,
+                spi_dev1,
+                spi_dev2,
             },
         )
+    }
+
+    #[task(local = [spi_dev1, spi_dev2])]
+    async fn io(mut cx: io::Context){
+        use::ad57xx::Ad57xx_shared;
+        let mut dac = Ad57xx_shared::new(cx.local.spi_dev1);
+        dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
+        dac
+            .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
+            .unwrap();
+        dac
+            .set_dac_output(ad57xx::Channel::DacA, 0x8000)
+            .unwrap();
+        dac
+           .set_dac_output(ad57xx::Channel::DacB, 0x0000)
+            .unwrap();
+        dac
+            .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
+            .unwrap();
     }
     #[task(shared = [ui])]
     async fn read_ui(mut cx: read_ui::Context, mut sender: Sender<'static, UiEvent, CAPACITY>) {

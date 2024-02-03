@@ -14,17 +14,14 @@ mod app {
     use core::cell::RefCell;
     use core::mem::MaybeUninit;
 
-    use control_module::hardware::project::{Generator, Lane, Project};
     use control_module::hardware::switches::{LedId, LedState, UiEvent};
     use control_module::hardware::timer::{TempoTimer, TIMER_FREQ};
     use control_module::hardware::ui::{UiStateMachine, UI};
-    use embedded_hal::digital::OutputPin;
     use embedded_hal::spi::SpiDevice;
     use embedded_hal_bus::spi::{NoDelay, RefCellDevice};
-    use fugit::{Duration, Instant, Rate};
+    use fugit::Instant;
     use hal::gpio::{ExtiPin, Output, Pin};
-    use hal::pac::SPI3;
-    use hal::spi::{Spi, Spi3};
+    use hal::spi::Spi3;
     use rtic_monotonics::systick::*;
     use rtic_monotonics::Monotonic;
     use rtic_sync::{channel::*, make_channel};
@@ -53,47 +50,23 @@ mod app {
     fn init(cx: init::Context) -> (Shared, Local) {
         defmt::info!("init");
         let hardware = control_module::hardware::setup(cx.device);
-        let clk_in = hardware.clk_in;
+        // Setup shared bus on SPI3
         let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
+        let spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
+        let spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
 
-        let mut spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
-
-        let mut spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
-
-        let tx = [0b01010101; 2];
-        spi_dev2.write(&tx).unwrap();
-
-        /*
-        let mut io = control_module::hardware::io::IO::new(spi_dev1, hardware.io_rclk);
-        io.dac
-            .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
-            .unwrap();
-        io.dac
-            .set_dac_output(ad57xx::Channel::DacA, 0x8000)
-            .unwrap();
-        io.dac
-            .set_dac_output(ad57xx::Channel::DacB, 0x0000)
-            .unwrap();
-        io.dac
-            .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
-            .unwrap();
-        */
-
+        // Setup TempoTimer
         let systick_mono_token = rtic_monotonics::create_systick_token!();
         Systick::start(cx.core.SYST, 168_000_000, systick_mono_token);
         TempoTimer::start();
-
+        let clk_in = hardware.clk_in;
         let tap_tempo = TapTempo::<84_000_000, 8>::new(4, 0.1);
-
-        let ui_fsm = UiStateMachine::new().state_machine();
-        let (event_channel_sender, event_channel_receiver) = make_channel!(UiEvent, CAPACITY);
         let (clock_channel_sender, clock_channel_receiver) = make_channel!(SyncMsg, CAPACITY);
 
-        let l = Lane::Generator {
-            t: Generator::Lfo { waveform: 0xF },
-        };
-        defmt::info!("sizeof Lane: {}", core::mem::size_of::<Lane>());
-        defmt::info!("sizeof Project: {}", core::mem::size_of::<Project>());
+        // Setup ui state machine
+        let ui_fsm = UiStateMachine::new().state_machine();
+        let (event_channel_sender, event_channel_receiver) = make_channel!(UiEvent, CAPACITY);
+
 
         ev_handler::spawn(event_channel_receiver).unwrap();
         read_ui::spawn(event_channel_sender.clone()).unwrap();
@@ -115,7 +88,7 @@ mod app {
     }
 
     #[task(local = [spi_dev1])]
-    async fn io(mut cx: io::Context){
+    async fn io(cx: io::Context){
         use::ad57xx::Ad57xx_shared;
         let mut dac = Ad57xx_shared::new(cx.local.spi_dev1);
         dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
@@ -133,7 +106,7 @@ mod app {
             .unwrap();
     }
     #[task(local = [spi_dev2])]
-    async fn io2(mut cx: io2::Context){
+    async fn io2(cx: io2::Context){
         let tx = [0b11001100; 2];
         cx.local.spi_dev2.write(&tx).unwrap();
 

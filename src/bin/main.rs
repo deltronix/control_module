@@ -14,7 +14,7 @@ mod app {
     use core::cell::RefCell;
     use core::mem::MaybeUninit;
 
-    use ad57xx::Ad57xx_shared;
+    use ad57xx::Ad57xxShared;
     use control_module::hardware::switches::{LedId, LedState, UiEvent};
     use control_module::hardware::timer::{TempoTimer, TIMER_FREQ};
     use control_module::hardware::ui::{UiStateMachine, UI};
@@ -45,7 +45,7 @@ mod app {
         tap_tempo: TapTempo<84_000_000, 8>,
         clock_channel_sender: Sender<'static, SyncMsg, CAPACITY>,
         spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
-        dac: Ad57xx_shared<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>>
+        dac: Ad57xxShared<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>>
     }
     #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
@@ -58,7 +58,7 @@ mod app {
         let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
         let spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
         let spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
-        let mut dac = Ad57xx_shared::new(spi_dev1);
+        let dac = Ad57xxShared::new(spi_dev1);
 
         // Setup TempoTimer
         let systick_mono_token = rtic_monotonics::create_systick_token!();

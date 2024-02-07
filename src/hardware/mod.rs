@@ -3,15 +3,11 @@ use core::cell::RefCell;
 use display_interface_spi::SPIInterface;
 use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
-use embedded_graphics::primitives::Rectangle;
-use embedded_hal::spi::{SpiBus, SpiDevice, MODE_0, MODE_2, MODE_3};
-use embedded_hal_bus::spi::{RefCellDevice, NoDelay};
-use embedded_hal_bus::spi::DeviceError;
+use embedded_hal::spi::{MODE_0, MODE_2, MODE_3};
 
 
 
 use hal::gpio::{Edge, ExtiPin, Input, Output, Pin, PinState};
-use hal::pac::SPI3;
 use hal::prelude::*;
 use hal::spi::{Spi, Spi3};
 use st7565::displays::DOGL128_6_EXT12V;
@@ -105,27 +101,7 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
         1.MHz(),
         &ccdr,
     );
-
-    //let dev1 = RefCellDevice::new(&spi_bus, spi3_sync, NoDelay);
-    /*
-    let mut io = IO::new(dev1, spi3_rclk);
-
-    io.dac
-        .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
-        .unwrap();
-    io.dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
-    io.dac
-        .set_dac_output(ad57xx::Channel::DacA, 0x8000)
-        .unwrap();
-    io.dac
-        .set_dac_output(ad57xx::Channel::DacB, 0x0000)
-        .unwrap();
-    io.dac
-        .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
-        .unwrap();
-    */
     let mut delay = peripherals.TIM14.delay_us(&ccdr);
-
     let mut display =
         unsafe { ST7565::new(spi2, DOGL128_6_EXT12V).into_graphics_mode(&mut DISPLAY_BUFFER) };
     display.reset(&mut spi2_disp_rst, &mut delay).unwrap();

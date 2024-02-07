@@ -34,6 +34,7 @@ tempo-clock = { path = "../tempo-clock" }
 ad57xx = { path = "../ad57xx" }
 embedded-hal-bus = { version = "0.1.0", features = ["async", "defmt-03"] }
 critical-section = "1.1.2"
+futures = { version = "0.3.30", default-features = false, features = ["async-await"] }
 
 # cargo build/run
 [profile.dev]

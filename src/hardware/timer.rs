@@ -3,6 +3,7 @@ use atomic_polyfill::{Ordering, AtomicU64};
 use rtic_time::half_period_counter::calculate_now;
 use rtic_time::Monotonic;
 use rtic_time::half_period_counter;
+use rtic_time::TimeoutError;
 use rtic_time::TimerQueue;
 
 use super::hal;
@@ -22,7 +23,7 @@ impl TempoTimer{
             w.arr().bits(u32::MAX)
         });
 
-        Self::timer().ccr2().modify(|r,w|{
+        Self::timer().ccr2().modify(|_,w|{
             w.ccr().bits(u32::MAX - (u32::MAX >> 1))
         });
 
@@ -32,7 +33,7 @@ impl TempoTimer{
         });
 
         Self::timer().egr.write(|r| r.ug().set_bit());
-        Self::timer().sr.modify(|r,w| w.uif().clear_bit());
+        Self::timer().sr.modify(|_,w| w.uif().clear_bit());
 
         TIMER_QUEUE.initialize(Self {});
         OVERFLOW_COUNTER.store(0, Ordering::SeqCst);
@@ -56,8 +57,23 @@ impl TempoTimer{
     pub async fn delay(duration: <Self as Monotonic>::Duration) {
         TIMER_QUEUE.delay(duration).await;
     }
-
-    
+    /// Timeout at a specific time
+    pub async fn timeout_at<F: core::future::Future>(
+        instant: <Self as rtic_time::Monotonic>::Instant,
+        future: F, 
+        ) -> Result<F::Output, TimeoutError> {
+        TIMER_QUEUE.timeout_at(instant, future).await
+    }
+    pub async fn timeout_after<F: core::future::Future>(
+        duration: <Self as rtic_time::Monotonic>::Duration,
+        future: F, 
+        ) -> Result<F::Output, TimeoutError> {
+        TIMER_QUEUE.timeout_after(duration, future).await
+    }
+    #[inline]
+    pub async fn delay_until(instant: <Self as rtic_time::Monotonic>::Instant){
+        TIMER_QUEUE.delay_until(instant).await
+    }
 }
 
 rtic_time::embedded_hal_delay_impl_fugit64!(TempoTimer);

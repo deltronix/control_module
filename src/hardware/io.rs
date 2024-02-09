@@ -2,7 +2,7 @@
 
 
 trait GateOut<const N_BYTES: usize>{
-
+    fn set(&mut self)
 }
 
 /// A CvOut has a number of outputs that can be set to a voltage (f32)

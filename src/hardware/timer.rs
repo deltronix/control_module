@@ -76,8 +76,6 @@ impl TempoTimer{
     }
 }
 
-rtic_time::embedded_hal_delay_impl_fugit64!(TempoTimer);
-
 impl Monotonic for TempoTimer{
     
     const ZERO: Self::Instant = TimerInstantU64::from_ticks(0);
@@ -131,21 +129,6 @@ impl Monotonic for TempoTimer{
         }
         
     }
-}
-macro_rules! create_stm32_timer_interrupt {
-    ($mono_timer:ident, $timer:ident, $timer_token:ident) => {{
-        #[no_mangle]
-        #[allow(non_snake_case)]
-        unsafe extern "C" fn $timer() {
-            $crate::stm32::$mono_timer::__tq().on_monotonic_interrupt();
-        }
-
-        pub struct $timer_token;
-
-        unsafe impl $crate::InterruptToken<$crate::stm32::$mono_timer> for $timer_token {}
-
-        $timer_token
-    }};
 }
 
 

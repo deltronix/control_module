@@ -1,9 +1,8 @@
 #![no_main]
 #![no_std]
 #![feature(type_alias_impl_trait)]
-use control_module::{self as _}; // global logger + panicking-behavior + memory layout
+use control_module::{self as _};
 use rtic::app;
-
 
 #[app(
     device = stm32f4xx_hal::pac,
@@ -11,18 +10,17 @@ use rtic::app;
     dispatchers = [TIM3]
 )]
 mod app {
-    use core::cell::RefCell;
-    use core::mem::MaybeUninit;
+    use core::{cell::RefCell, mem::MaybeUninit};
 
-    use ad57xx::Ad57xxShared;
-    use control_module::hardware::switches::{LedId, LedState, UiEvent};
+    use ad57xx::{Ad57xx, Ad57xxShared};
+    use control_module::hardware::switches::UiEvent;
+    use control_module::hardware::switches::{LedId, LedState};
     use control_module::hardware::timer::{TempoTimer, TIMER_FREQ};
     use control_module::hardware::ui::{UiStateMachine, UI};
-    use embedded_hal::digital::OutputPin;
     use embedded_hal::spi::SpiDevice;
-    use embedded_hal_bus::spi::{NoDelay, RefCellDevice};
-    use fugit::{Instant, TimerDurationU64};
-    use futures::select_biased;
+    use embedded_hal_bus::spi::NoDelay;
+    use embedded_hal_bus::spi::RefCellDevice;
+    use fugit::TimerDurationU64;
     use hal::gpio::{ExtiPin, Output, Pin};
     use hal::spi::Spi3;
     use rtic_monotonics::systick::*;
@@ -30,15 +28,7 @@ mod app {
     use rtic_sync::{channel::*, make_channel};
     use statig::prelude::*;
     use stm32f4xx_hal as hal;
-    use tempo_clock::sync::{ClockMessage, SyncClock};
-    use control_module::hardware::project::Clock;
 
-    #[derive(Debug)]
-    enum ClockId{
-        ClkIn
-    }
-
-    type ClockMsg = ClockMessage<TIMER_FREQ, ClockId>;
     const CAPACITY: usize = 16;
     #[shared]
     struct Shared {
@@ -50,9 +40,12 @@ mod app {
         clk_in: Pin<'A', 8>,
         clk_out: Pin<'C', 15, Output>,
         sync_clk: SyncClock<84_000_000, 8>,
-        clock_channel_sender: Sender<'static, ClockMsg, CAPACITY>,
+        clock_channel_sender: Sender<'static, ClockMessage<ClockId>, CAPACITY>,
         spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
-        dac: Ad57xxShared<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>>
+        dac: Ad57xxShared<
+            RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
+            ad57xx::marker::Ad57x4,
+        >,
     }
     #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
@@ -65,7 +58,7 @@ mod app {
         let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
         let spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
         let spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
-        let dac = Ad57xxShared::new(spi_dev1);
+        let dac = Ad57xxShared::new_ad57x4(spi_dev1);
 
         // Setup TempoTimer
         let systick_mono_token = rtic_monotonics::create_systick_token!();
@@ -73,12 +66,13 @@ mod app {
         TempoTimer::start();
         let clk_in = hardware.clk_in;
         let sync_clk = SyncClock::<84_000_000, 8>::new(2, 0.1);
-        let (clock_channel_sender, clock_channel_receiver) = make_channel!(ClockMsg, CAPACITY);
+        let (clock_channel_sender, clock_channel_receiver) =
+            make_channel!(ClockMessage<ClockId>, CAPACITY);
 
         // Setup ui state machine
         let ui_fsm = UiStateMachine::new().state_machine();
-        let (event_channel_sender, event_channel_receiver) = make_channel!(UiEvent, CAPACITY);
-
+        let (event_channel_sender, event_channel_receiver) =
+            make_channel!(UiEvent, CAPACITY);
 
         ev_handler::spawn(event_channel_receiver).unwrap();
         read_ui::spawn(event_channel_sender.clone()).unwrap();
@@ -100,28 +94,31 @@ mod app {
         )
     }
     #[task(local = [dac])]
-    async fn io(cx: io::Context){
+    async fn io(cx: io::Context) {
         let dac = cx.local.dac;
-        dac.set_power(ad57xx::Channel::AllDacs, true).unwrap();
-        dac
-            .set_output_range(ad57xx::Channel::AllDacs, ad57xx::OutputRange::Bipolar5V)
+        dac.set_power(ad57xx::ad57x4::ChannelQuad::AllDacs, true)
             .unwrap();
-        dac
-            .set_dac_output(ad57xx::Channel::DacA, 0x8000)
+        dac.set_output_range(
+            ad57xx::ad57x4::ChannelQuad::AllDacs,
+            ad57xx::OutputRange::Bipolar5V,
+        )
+        .unwrap();
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacA, 0x8000)
             .unwrap();
-        dac
-           .set_dac_output(ad57xx::Channel::DacB, 0x0000)
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacB, 0x0000)
             .unwrap();
-        dac
-            .set_dac_output(ad57xx::Channel::DacC, 0xFFFF)
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacC, 0xFFFF)
             .unwrap();
     }
     #[task(local = [spi_dev2])]
-    async fn dio(cx: dio::Context, tx: [u8; 2]){
+    async fn dio(cx: dio::Context, tx: [u8; 2]) {
         cx.local.spi_dev2.write(&tx).unwrap();
     }
     #[task(shared = [ui])]
-    async fn read_ui(mut cx: read_ui::Context, mut sender: Sender<'static, UiEvent, CAPACITY>) {
+    async fn read_ui(
+        mut cx: read_ui::Context,
+        mut sender: Sender<'static, UiEvent, CAPACITY>,
+    ) {
         loop {
             Systick::delay(1.millis()).await;
             cx.shared.ui.lock(|ui| {
@@ -148,41 +145,26 @@ mod app {
     }
 
     #[task(shared = [ui], local = [clk_out, sync_clk])]
-    async fn test(mut cx: test::Context, mut receiver: Receiver<'static, ClockMsg, CAPACITY>) {
-        let mut on: bool = false;
-        let mut clk = Clock::new(TempoTimer::__tq());
-        let mut sync = cx.local.sync_clk;
-        clk.sync(TempoTimer::now(), TimerDurationU64::<TIMER_FREQ>::millis(500), 4);
+    async fn test(
+        mut cx: test::Context,
+        mut receiver: Receiver<'static, ClockMessage<ClockId>, CAPACITY>,
+    ) {
+        use control_module::sequencer::TransportClock;
+        let mut Transport = TransportClock::<TIMER_FREQ>::new(Tempo::default());
 
         loop {
-            if receiver.is_empty(){
-                cx.shared.ui.lock(|ui| {
-                    if clk.ticks == 0 {
-                        cx.local.clk_out.set_low();
-                        ui.switches.set_led(&LedId::Reset, LedState::On);
-                    }
-                    else if clk.ticks % 2 != 0 {
-                        cx.local.clk_out.set_high();
-                        ui.switches.set_led(&LedId::Reset, LedState::Off);
-                    } else {
-                        cx.local.clk_out.set_low();
-                        ui.switches.set_led(&LedId::Reset, LedState::On);
-                    }
-                });
-                clk.divide().await;
-            }
-            else {
-                match receiver.try_recv().unwrap(){
-                    ClockMessage::Sync(inst, _) => {
-                        if let Some(dur) = sync.tick(inst){
-                        clk.sync(inst, dur, 4)}
-                    },
-                    ClockMessage::Start(_, _) => todo!(),
-                    ClockMessage::Pause(_, _) => todo!(),
-                    ClockMessage::Stop(_, _) => todo!(),
-                    ClockMessage::Reset(_, _) => todo!(),
-                }
-            }
+            Transport
+                .await_beat(TempoTimer::__tq(), &mut receiver)
+                .await;
+            cx.shared.ui.lock(|ui| {
+                    cx.local.clk_out.set_low();
+                    ui.switches.set_led(&LedId::Reset, LedState::On);
+            });
+            TempoTimer::delay(TimerDurationU64::millis(1)).await;
+            cx.shared.ui.lock(|ui| {
+                    cx.local.clk_out.set_high();
+                    ui.switches.set_led(&LedId::Reset, LedState::Off);
+            });
         }
     }
 
@@ -196,7 +178,7 @@ mod app {
     #[task(binds = EXTI9_5, local = [clk_in, clock_channel_sender])]
     fn clk_in_handler(cx: clk_in_handler::Context) {
         cx.local.clk_in.clear_interrupt_pending_bit();
-        let sm = ClockMessage::Sync(TempoTimer::now(), ClockId::ClkIn);
+        let sm = ClockMessage::Sync(TempoTimer::now(), ClockId::ClkExternal);
         cx.local.clock_channel_sender.try_send(sm).unwrap();
     }
 }

@@ -11,9 +11,7 @@ use super::timer::TempoTimer;
 use super::timer::TIMER_FREQ;
 use defmt::*;
 
-pub struct Note {
-}
-
+pub struct Note {}
 
 /// A generator generates either an analog (CV) or digital (TRIG/GATE) signal
 ///
@@ -30,14 +28,13 @@ pub struct Note {
 ///   - ...
 
 trait Generator {
-    async fn next(){}
+    async fn next() {}
 }
-
 
 type Duration = TimerDurationU64<TIMER_FREQ>;
 type Instant = TimerInstantU64<TIMER_FREQ>;
 
-pub struct Clock{ 
+pub struct Clock {
     pub ticks: u32,
     last_instant: Option<Instant>,
     duration: Option<Duration>,
@@ -51,16 +48,15 @@ impl Clock {
             duration: None,
             timer,
         }
-        
     }
-    pub fn sync(&mut self, inst: Instant, dur: Duration, div: u32){
+    pub fn sync(&mut self, inst: Instant, dur: Duration, div: u32) {
         self.ticks = 0;
         self.last_instant = Some(inst);
         self.duration = Some(dur / div);
     }
-    pub async fn divide(&mut self){
+    pub async fn divide(&mut self) {
         if let (Some(last), Some(dur)) = (self.last_instant, self.duration) {
-            if let Some(next_instant) = last.checked_add_duration(dur){
+            if let Some(next_instant) = last.checked_add_duration(dur) {
                 self.ticks += 1;
                 self.last_instant = Some(next_instant);
                 self.timer.delay_until(next_instant).await
@@ -69,9 +65,7 @@ impl Clock {
             }
         }
     }
-
 }
-
 
 /*
 /// A "Project" holds all transient data
@@ -126,5 +120,3 @@ pub enum Lane{
     },
 }
 */
-
-

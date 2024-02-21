@@ -1,8 +1,8 @@
 use core::hash::Hash;
 use core::marker::PhantomData;
 
-use crate::hardware::hal as hal;
 use crate::hardware::debounce::Debouncer;
+use crate::hardware::hal;
 use defmt::Format;
 use heapless::FnvIndexMap;
 
@@ -74,7 +74,7 @@ struct MomentarySwitch {
 }
 impl MomentarySwitch {
     pub fn id(&self) -> SwitchId {
-        return self.id;
+        self.id
     }
 }
 #[derive(Copy, Clone, Debug)]
@@ -86,7 +86,7 @@ impl UiElement<LedId, LedState> for Led {
     fn new(id: LedId) -> Self {
         Self {
             state: LedState::Off,
-            id
+            id,
         }
     }
     fn update(&mut self, s: LedState) -> LedState {
@@ -114,28 +114,27 @@ impl UiElement<SwitchId, SwitchState> for MomentarySwitch {
     }
 }
 
-struct UiElementArray<const N: usize, ID, EL, S>
-{
-    elements: FnvIndexMap<ID, EL, N> ,
-    s: PhantomData<S>
+struct UiElementArray<const N: usize, ID, EL, S> {
+    elements: FnvIndexMap<ID, EL, N>,
+    s: PhantomData<S>,
 }
 
-impl<const N: usize, ID, EL, S> UiElementArray<N, ID, EL, S> where
+impl<const N: usize, ID, EL, S> UiElementArray<N, ID, EL, S>
+where
     EL: UiElement<ID, S> + Copy + core::fmt::Debug,
-    ID: Copy + PartialEq + Eq + Hash + core::fmt::Debug
+    ID: Copy + PartialEq + Eq + Hash + core::fmt::Debug,
 {
     fn new(ids: [ID; N], el: EL) -> Self {
         let mut e = FnvIndexMap::<ID, EL, N>::new();
 
-        ids.iter().for_each(|id|{
+        ids.iter().for_each(|id| {
             e.insert(*id, EL::new(*id)).unwrap();
         });
-        
+
         Self {
-           elements: e,
-           s: PhantomData,
+            elements: e,
+            s: PhantomData,
         }
-        
     }
 }
 
@@ -150,7 +149,11 @@ pub struct Switches<const N: usize> {
 impl<const N: usize> Switches<N> {
     pub fn new(
         spi: hal::spi::Spi<hal::pac::SPI1>,
-        rclk_ld: hal::gpio::Pin<'B', 6, hal::gpio::Output<hal::gpio::OpenDrain>>,
+        rclk_ld: hal::gpio::Pin<
+            'B',
+            6,
+            hal::gpio::Output<hal::gpio::OpenDrain>,
+        >,
     ) -> Self {
         Self {
             spi,
@@ -175,21 +178,35 @@ impl<const N: usize> Switches<N> {
                 MomentarySwitch::new(SwitchId::D),
             ],
             leds: UiElementArray::new(
-                [LedId::Project, LedId::Part, LedId::Lane, LedId::Step, 
-                LedId::P1, LedId::P2, LedId::P3, LedId::P4,
-                LedId::Play, LedId::Stop, LedId::Reset, LedId::Small,
-                LedId::A, LedId::B, LedId::C, LedId::D],
-                Led::new(LedId::Project)),
+                [
+                    LedId::Project,
+                    LedId::Part,
+                    LedId::Lane,
+                    LedId::Step,
+                    LedId::P1,
+                    LedId::P2,
+                    LedId::P3,
+                    LedId::P4,
+                    LedId::Play,
+                    LedId::Stop,
+                    LedId::Reset,
+                    LedId::Small,
+                    LedId::A,
+                    LedId::B,
+                    LedId::C,
+                    LedId::D,
+                ],
+                Led::new(LedId::Project),
+            ),
             tx_buffer: [0x00; N],
         }
     }
     pub fn transfer(&mut self) -> Option<[u8; N]> {
-        self.leds.elements.iter().for_each(|led|{
+        self.leds.elements.iter().for_each(|led| {
             let i = led.1.index();
             if led.1.state == LedState::On {
                 self.tx_buffer[i >> 3] |= 1 << (i % 8);
-            }
-            else {
+            } else {
                 self.tx_buffer[i >> 3] &= !(1 << (i % 8));
             }
         });
@@ -200,8 +217,6 @@ impl<const N: usize> Switches<N> {
         self.rclk_ld.set_high();
         self.rclk_ld.set_low();
         self.rclk_ld.set_high();
-
-
 
         self.spi.transfer(&mut rx_buffer, &tx_buffer).unwrap();
         self.rclk_ld.set_high();
@@ -221,17 +236,23 @@ impl<const N: usize> Switches<N> {
         self.cm_switches.iter_mut().for_each(|sw| {
             if self.debouncer.changed(sw.index()) {
                 if self.debouncer.pressed(sw.index()) {
-                    f(UiEvent::SwitchEvent(sw.id(), sw.update(SwitchState::Pressed)));
+                    f(UiEvent::SwitchEvent(
+                        sw.id(),
+                        sw.update(SwitchState::Pressed),
+                    ));
                 } else {
-                    f(UiEvent::SwitchEvent(sw.id(), sw.update(SwitchState::Released)));
+                    f(UiEvent::SwitchEvent(
+                        sw.id(),
+                        sw.update(SwitchState::Released),
+                    ));
                 };
             } else {
             }
         });
     }
 
-    pub fn set_led(&mut self, id: &LedId, s: LedState){
-        if let Some(led) = self.leds.elements.get_mut(id){
+    pub fn set_led(&mut self, id: &LedId, s: LedState) {
+        if let Some(led) = self.leds.elements.get_mut(id) {
             led.update(s);
         }
     }

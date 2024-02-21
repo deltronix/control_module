@@ -39,29 +39,25 @@ impl<const N: usize, const S: usize> Debouncer<N, S> {
         } else {
             self.previous_state = self.current_state;
             self.current_state = acc;
-            self.current_state
-                .iter()
-                .enumerate()
-                .for_each(|(i, s)| self.changed[i] = s ^ self.previous_state[i]);
+            self.current_state.iter().enumerate().for_each(|(i, s)| {
+                self.changed[i] = s ^ self.previous_state[i]
+            });
             Some(self.current_state)
         }
     }
     pub fn changed(&self, index: usize) -> bool {
         (self.changed[index >> 3] & (1 << index % 8)) != 0
     }
-    pub fn changed_byte(&self, index: usize) -> u8 {
-        self.changed[index]
-    }
     pub fn pressed(&self, index: usize) -> bool {
         if self.changed(index) {
-            return (!self.current_state[index >> 3] & (1 << (index % 8))) != 0;
+            (!self.current_state[index >> 3] & (1 << (index % 8))) != 0
         } else {
             false
         }
     }
     pub fn released(&self, index: usize) -> bool {
         if self.changed(index) {
-            return self.current_state[index >> 3] & (1 << (index % 8)) == 0;
+            self.current_state[index >> 3] & (1 << (index % 8)) == 0
         } else {
             false
         }

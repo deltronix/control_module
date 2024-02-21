@@ -1,10 +1,8 @@
-use defmt::Format;
-use crate::hardware::hal;
-use statig::prelude::*;
-use super::switches::{UiEvent};
-use super::switches::{SwitchId, Switches, SwitchState};
+use super::display::DisplayType;
 use super::switches::{LedId, LedState};
-use super::display::{DisplayType, PageBufferType};
+use super::switches::{SwitchId, SwitchState, Switches, UiEvent};
+use defmt::Format;
+use statig::prelude::*;
 
 #[derive(Clone, Copy, Eq, PartialEq, Format, Debug)]
 enum View {
@@ -16,7 +14,6 @@ enum View {
     Overview,
 }
 
-
 pub struct UI {
     pub switches: Switches<6>,
     pub display: DisplayType,
@@ -27,10 +24,10 @@ pub struct UiStateMachine {
 }
 
 #[state_machine(initial = "State::idle()")]
-impl UiStateMachine{
+impl UiStateMachine {
     pub fn new() -> Self {
         Self {
-            view: View::Overview
+            view: View::Overview,
         }
     }
     #[state]
@@ -40,9 +37,10 @@ impl UiStateMachine{
                 defmt::info!("{}: {}", id, s);
                 if *s == SwitchState::Pressed {
                     match *id {
-                        SwitchId::Project | SwitchId::Part | SwitchId::Lane | SwitchId::Step => {
-                            Transition(State::view_switch())
-                        }
+                        SwitchId::Project
+                        | SwitchId::Part
+                        | SwitchId::Lane
+                        | SwitchId::Step => Transition(State::view_switch()),
                         SwitchId::CopyLoad => todo!(),
                         SwitchId::PasteSave => todo!(),
                         SwitchId::Select => todo!(),
@@ -63,18 +61,32 @@ impl UiStateMachine{
         }
     }
     #[state]
-    fn view_switch(&mut self, event: &UiEvent, context: &mut UI) -> Response<State> {
+    fn view_switch(
+        &mut self,
+        event: &UiEvent,
+        context: &mut UI,
+    ) -> Response<State> {
         let view = match event {
-            UiEvent::SwitchEvent(id, _) => 
-                match id {
-                SwitchId::Project => {context.switches.set_led(&LedId::Project, LedState::On); View::Project},
-                SwitchId::Part => {context.switches.set_led(&LedId::Part, LedState::On); View::Part},
-                SwitchId::Lane => {context.switches.set_led(&LedId::Lane, LedState::On); View::Lane},
-                SwitchId::Step => {context.switches.set_led(&LedId::Step, LedState::On); View::Step},
+            UiEvent::SwitchEvent(id, _) => match id {
+                SwitchId::Project => {
+                    context.switches.set_led(&LedId::Project, LedState::On);
+                    View::Project
+                }
+                SwitchId::Part => {
+                    context.switches.set_led(&LedId::Part, LedState::On);
+                    View::Part
+                }
+                SwitchId::Lane => {
+                    context.switches.set_led(&LedId::Lane, LedState::On);
+                    View::Lane
+                }
+                SwitchId::Step => {
+                    context.switches.set_led(&LedId::Step, LedState::On);
+                    View::Step
+                }
                 _ => self.view,
             },
         };
         Handled
     }
-
 }

@@ -3,7 +3,8 @@
 #![no_std]
 #![feature(type_alias_impl_trait)]
 
-use control_module as _; // global logger + panicking-behavior + memory layout
+use control_module as _; /* global logger + panicking-behavior + memory
+                           * layout */
 use display_interface_spi::SPIInterface;
 use embedded_graphics::{
     geometry::Size,
@@ -14,19 +15,21 @@ use embedded_graphics::{
     text::Text,
 };
 
-use heapless::String;
-use embedded_hal::spi::MODE_3;
-use rtic::app;
-use rtic_monotonics::systick::*;
-use rtic_monotonics::systick::fugit::TimerInstantU32;
-use rtic_monotonics::Monotonic;
-use st7565::{displays::DOGL128_6_EXT12V, GraphicsMode, GraphicsPageBuffer, ST7565};
-use stm32f4xx_hal::prelude::*;
-use stm32f4xx_hal::{spi::Spi, spi::Spi2};
-use stm32f4xx_hal::gpio::{Output, Pin};
+use core::fmt::Write;
 use embedded_graphics::mono_font::iso_8859_1::FONT_9X15;
 use embedded_graphics::mono_font::iso_8859_10::FONT_5X7;
-use core::fmt::Write;
+use embedded_hal::spi::MODE_3;
+use heapless::String;
+use rtic::app;
+use rtic_monotonics::systick::fugit::TimerInstantU32;
+use rtic_monotonics::systick::*;
+use rtic_monotonics::Monotonic;
+use st7565::{
+    displays::DOGL128_6_EXT12V, GraphicsMode, GraphicsPageBuffer, ST7565,
+};
+use stm32f4xx_hal::gpio::{Output, Pin};
+use stm32f4xx_hal::prelude::*;
+use stm32f4xx_hal::{spi::Spi, spi::Spi2};
 #[app(
     device = stm32f4xx_hal::pac,
     peripherals = true,
@@ -65,7 +68,6 @@ mod app {
         let systick_mono_token = rtic_monotonics::create_systick_token!();
         Systick::start(cx.core.SYST, 48_000_000, systick_mono_token);
 
-
         let (
             mut spi2_disp_rst,
             mut spi2_disp_a0,
@@ -92,7 +94,6 @@ mod app {
             gpioc.pc6.into_push_pull_output()
         };
 
-        
         spi2_flash_cs.set_high();
         spi2_disp_rst.set_high();
         spi2_disp_a0.set_high();
@@ -113,8 +114,10 @@ mod app {
 
         let mut timer = cx.device.TIM2.delay_us(&ccdr);
 
-        let page_buffer = cx.local.page_buffer.insert(GraphicsPageBuffer::new());
-        let mut display = ST7565::new(disp_spi, DOGL128_6_EXT12V).into_graphics_mode(page_buffer);
+        let page_buffer =
+            cx.local.page_buffer.insert(GraphicsPageBuffer::new());
+        let mut display = ST7565::new(disp_spi, DOGL128_6_EXT12V)
+            .into_graphics_mode(page_buffer);
         display.reset(&mut spi2_disp_rst, &mut timer).unwrap();
         display.flush().unwrap();
         display.set_display_on(true).unwrap();
@@ -126,17 +129,19 @@ mod app {
         render::spawn().ok();
         update::spawn().ok();
 
-        
         (
-            Shared { disp: display }, 
-            Local { t_init: Systick::now()})
+            Shared { disp: display },
+            Local {
+                t_init: Systick::now(),
+            },
+        )
     }
 
     // Optional idle, can be removed if not needed.
     //
     #[task(priority = 1)]
-    async fn update(_: update::Context){
-        loop{
+    async fn update(_: update::Context) {
+        loop {
             task1::spawn().ok();
             Systick::delay(1000.millis()).await;
             task2::spawn().ok();
@@ -146,11 +151,11 @@ mod app {
     #[task(priority = 0, shared=[disp])]
     async fn render(mut cx: render::Context) {
         loop {
-            cx.shared.disp.lock(|disp|{
+            cx.shared.disp.lock(|disp| {
                 disp.flush().unwrap();
             });
             Systick::delay(20.millis()).await;
-        } 
+        }
     }
     #[task(priority = 1, shared=[disp])]
     async fn task1(mut cx: task1::Context) {
@@ -166,7 +171,7 @@ mod app {
     }
 
     #[task(priority = 1, shared = [disp])]
-    async fn task2(mut cx: task2::Context){
+    async fn task2(mut cx: task2::Context) {
         defmt::info!("task 2");
         let font = MonoTextStyle::new(&FONT_9X15, BinaryColor::On);
         cx.shared.disp.lock(|disp| {
@@ -178,15 +183,25 @@ mod app {
         uptime_counter::spawn().ok();
     }
     #[task(priority = 1, shared = [disp], local = [t_init])]
-    async fn uptime_counter(mut cx: uptime_counter::Context){
+    async fn uptime_counter(mut cx: uptime_counter::Context) {
         let t = Systick::now();
         let uptime = t.checked_duration_since(*cx.local.t_init).unwrap();
         let fill = PrimitiveStyle::with_fill(BinaryColor::On);
         let font = MonoTextStyle::new(&FONT_5X7, BinaryColor::Off);
         let mut text: String<16> = String::new();
-        write!(text, "UPTIME: {:02}:{:02}:{:02}", uptime.to_hours(), uptime.to_minutes() % 60, uptime.to_secs() % 60).unwrap();
-        cx.shared.disp.lock(|disp|{
-            Rectangle::new(Point::new(0, 56),Size::new(132,8)).into_styled(fill).draw(*disp).unwrap();
+        write!(
+            text,
+            "UPTIME: {:02}:{:02}:{:02}",
+            uptime.to_hours(),
+            uptime.to_minutes() % 60,
+            uptime.to_secs() % 60
+        )
+        .unwrap();
+        cx.shared.disp.lock(|disp| {
+            Rectangle::new(Point::new(0, 56), Size::new(132, 8))
+                .into_styled(fill)
+                .draw(*disp)
+                .unwrap();
             Text::new(text.as_str(), Point::new(16, 62), font)
                 .draw(*disp)
                 .unwrap();
@@ -200,5 +215,3 @@ mod app {
         defmt::info!("bin counter {}", cx.local.binary_counter);
     }
 }
-
-

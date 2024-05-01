@@ -3,15 +3,12 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_hal::spi::{MODE_0, MODE_2, MODE_3};
 
-use hal::adc::config::Dma;
 use hal::dma::StreamsTuple;
 use hal::gpio::{Edge, ExtiPin, Input, Output, Pin, PinState};
 use hal::pac::{DMA1, UART4};
 use hal::prelude::*;
 use hal::spi::{Spi, Spi3};
 use hal::time::Bps;
-use hal::uart::config::DmaConfig;
-use hal::serial::Rx;
 use hal::uart::{Config, Event, Serial};
 use st7565::displays::DOGL128_6_EXT12V;
 use st7565::{GraphicsPageBuffer, ST7565};
@@ -19,8 +16,6 @@ use stm32f4xx_hal as hal;
 
 pub(crate) mod debounce;
 pub mod display;
-pub mod io;
-pub mod project;
 pub mod switches;
 pub mod timer;
 pub mod ui;
@@ -35,8 +30,6 @@ pub struct Hardware {
     pub start_stop_in: Pin<'C', 13, Input>,
     pub clk_out: Pin<'C', 15, Output>,
     pub spi3: Spi3,
-    //pub io: IO<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
-    //            Pin<'D', 2, Output>>,
     pub midi: Serial<UART4>,
     pub io_sync: Pin<'A', 15, Output>,
     pub io_rclk: Pin<'D', 2, Output>,
@@ -46,6 +39,7 @@ pub struct Hardware {
 static mut DISPLAY_BUFFER: PageBufferType = GraphicsPageBuffer::new();
 
 pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
+    // Setup Clock Domain
     peripherals.RCC.apb1enr.write(|w| w.tim2en().enabled());
     let rcc = peripherals.RCC.constrain();
     let ccdr = rcc.cfgr.sysclk(168.MHz()).freeze();
@@ -53,8 +47,8 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     let mut exti = peripherals.EXTI;
 
     let gpioa = peripherals.GPIOA.split();
-    let mut midi_out = gpioa.pa0.into_alternate();
-    let mut midi_in = gpioa.pa1.into_alternate();
+    let midi_out = gpioa.pa0.into_alternate();
+    let midi_in = gpioa.pa1.into_alternate();
 
     let mut clk_in = gpioa.pa8.into_input();
     clk_in.make_interrupt_source(&mut syscfg);
@@ -70,7 +64,6 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
 
     // Setup MIDI DMA Stream
     let dma1 = StreamsTuple::new(peripherals.DMA1);
-
 
     let clk_out = gpioc.pc15.into_push_pull_output_in_state(PinState::Low);
     let spi3_sclk = gpioc.pc10.into_alternate();
@@ -97,7 +90,7 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     let spi2_sck = gpiob.pb13.into_alternate();
     let spi2_miso = gpiob.pb14.into_alternate();
     let spi2_mosi = gpiob.pb15.into_alternate();
-    let disp_backlight =
+    let _disp_backlight =
         gpiob.pb1.into_push_pull_output_in_state(PinState::High);
 
     let spi1 = Spi::new(

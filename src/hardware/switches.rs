@@ -214,19 +214,20 @@ impl<const N: usize> Switches<N> {
         let mut rx_buffer: [u8; N] = [0b0; N];
         let mut tx_buffer = self.tx_buffer;
         tx_buffer.reverse();
-        self.rclk_ld.set_high();
-        self.rclk_ld.set_low();
-        self.rclk_ld.set_high();
+        self.rclk_toggle();
 
         self.spi.transfer(&mut rx_buffer, &tx_buffer).unwrap();
-        self.rclk_ld.set_high();
-        self.rclk_ld.set_low();
-        self.rclk_ld.set_high();
+        self.rclk_toggle();
         if let Some(switch_state) = self.debouncer.debounce(&rx_buffer) {
             Some(switch_state)
         } else {
             None
         }
+    }
+    fn rclk_toggle(&mut self){
+        self.rclk_ld.set_high();
+        self.rclk_ld.set_low();
+        self.rclk_ld.set_high();
     }
 
     pub fn update<F>(&mut self, mut f: F)

@@ -10,21 +10,17 @@ use rtic::app;
     dispatchers = [TIM3]
 )]
 mod app {
-    use core::{cell::RefCell, mem::MaybeUninit};
-
     use ad57xx::{Ad57xx, Ad57xxShared};
     use control_module::hardware::switches::UiEvent;
-    use control_module::hardware::switches::{LedId, LedState};
-    use control_module::hardware::timer::{TempoTimer, TIMER_FREQ};
+    use control_module::hardware::timer::TempoTimer;
     use control_module::hardware::ui::{UiStateMachine, UI};
+    use core::{cell::RefCell, mem::MaybeUninit};
     use embedded_hal::spi::SpiDevice;
     use embedded_hal_bus::spi::NoDelay;
     use embedded_hal_bus::spi::RefCellDevice;
-    use fugit::TimerDurationU64;
-    use hal::gpio::{ExtiPin, Output, Pin};
+    use hal::gpio::{Output, Pin};
     use hal::spi::Spi3;
     use rtic_monotonics::systick::*;
-    use rtic_monotonics::Monotonic;
     use rtic_sync::{channel::*, make_channel};
     use statig::prelude::*;
     use stm32f4xx_hal as hal;
@@ -37,10 +33,6 @@ mod app {
     #[local]
     struct Local<'a> {
         ui_fsm: StateMachine<UiStateMachine>,
-        clk_in: Pin<'A', 8>,
-        clk_out: Pin<'C', 15, Output>,
-        sync_clk: SyncClock<84_000_000, 8>,
-        clock_channel_sender: Sender<'static, ClockMessage<ClockId>, CAPACITY>,
         spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
         dac: Ad57xxShared<
             RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
@@ -65,9 +57,6 @@ mod app {
         Systick::start(cx.core.SYST, 168_000_000, systick_mono_token);
         TempoTimer::start();
         let clk_in = hardware.clk_in;
-        let sync_clk = SyncClock::<84_000_000, 8>::new(2, 0.1);
-        let (clock_channel_sender, clock_channel_receiver) =
-            make_channel!(ClockMessage<ClockId>, CAPACITY);
 
         // Setup ui state machine
         let ui_fsm = UiStateMachine::new().state_machine();
@@ -76,7 +65,6 @@ mod app {
 
         ev_handler::spawn(event_channel_receiver).unwrap();
         read_ui::spawn(event_channel_sender.clone()).unwrap();
-        test::spawn(clock_channel_receiver).unwrap();
         io::spawn().unwrap();
         dio::spawn([0x00; 2]).unwrap();
 
@@ -84,10 +72,6 @@ mod app {
             Shared { ui: hardware.ui },
             Local {
                 ui_fsm,
-                clk_in,
-                sync_clk,
-                clock_channel_sender,
-                clk_out: hardware.clk_out,
                 dac,
                 spi_dev2,
             },
@@ -142,43 +126,5 @@ mod app {
                 cx.local.ui_fsm.handle_with_context(&ev, ui);
             })
         }
-    }
-
-    #[task(shared = [ui], local = [clk_out, sync_clk])]
-    async fn test(
-        mut cx: test::Context,
-        mut receiver: Receiver<'static, ClockMessage<ClockId>, CAPACITY>,
-    ) {
-        use control_module::sequencer::TransportClock;
-        let mut Transport = TransportClock::<TIMER_FREQ>::new(Tempo::default());
-
-        loop {
-            Transport
-                .await_beat(TempoTimer::__tq(), &mut receiver)
-                .await;
-            cx.shared.ui.lock(|ui| {
-                    cx.local.clk_out.set_low();
-                    ui.switches.set_led(&LedId::Reset, LedState::On);
-            });
-            TempoTimer::delay(TimerDurationU64::millis(1)).await;
-            cx.shared.ui.lock(|ui| {
-                    cx.local.clk_out.set_high();
-                    ui.switches.set_led(&LedId::Reset, LedState::Off);
-            });
-        }
-    }
-
-    #[task(binds = TIM2)]
-    fn tim2_irq(_cx: tim2_irq::Context) {
-        unsafe {
-            TempoTimer::__tq().on_monotonic_interrupt();
-        }
-    }
-
-    #[task(binds = EXTI9_5, local = [clk_in, clock_channel_sender])]
-    fn clk_in_handler(cx: clk_in_handler::Context) {
-        cx.local.clk_in.clear_interrupt_pending_bit();
-        let sm = ClockMessage::Sync(TempoTimer::now(), ClockId::ClkExternal);
-        cx.local.clock_channel_sender.try_send(sm).unwrap();
     }
 }

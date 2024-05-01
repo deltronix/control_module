@@ -3,15 +3,21 @@ use embedded_graphics::pixelcolor::BinaryColor;
 use embedded_graphics::prelude::*;
 use embedded_hal::spi::{MODE_0, MODE_2, MODE_3};
 
+use hal::adc::config::Dma;
+use hal::dma::StreamsTuple;
 use hal::gpio::{Edge, ExtiPin, Input, Output, Pin, PinState};
+use hal::pac::{DMA1, UART4};
 use hal::prelude::*;
 use hal::spi::{Spi, Spi3};
+use hal::uart::config::DmaConfig;
+use hal::serial::Rx;
 use st7565::displays::DOGL128_6_EXT12V;
 use st7565::{GraphicsPageBuffer, ST7565};
 use stm32f4xx_hal as hal;
 
 pub(crate) mod debounce;
 pub mod display;
+pub mod io;
 pub mod project;
 pub mod switches;
 pub mod timer;
@@ -29,8 +35,10 @@ pub struct Hardware {
     pub spi3: Spi3,
     //pub io: IO<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
     //            Pin<'D', 2, Output>>,
+    pub midi: Rx<UART4>,
     pub io_sync: Pin<'A', 15, Output>,
     pub io_rclk: Pin<'D', 2, Output>,
+    pub dma1: StreamsTuple<DMA1>,
 }
 
 static mut DISPLAY_BUFFER: PageBufferType = GraphicsPageBuffer::new();
@@ -43,17 +51,23 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     let mut exti = peripherals.EXTI;
 
     let gpioa = peripherals.GPIOA.split();
-    let gpioc = peripherals.GPIOC.split();
+    let mut midi_out = gpioa.pa0;
+    let mut midi_in = gpioa.pa1.into_alternate();
+
     let mut clk_in = gpioa.pa8.into_input();
     clk_in.make_interrupt_source(&mut syscfg);
     clk_in.enable_interrupt(&mut exti);
     clk_in.trigger_on_edge(&mut exti, Edge::Rising);
 
+    let gpioc = peripherals.GPIOC.split();
     let mut start_stop_in = gpioc.pc13.into_input();
     start_stop_in.make_interrupt_source(&mut syscfg);
     start_stop_in.enable_interrupt(&mut exti);
     start_stop_in.trigger_on_edge(&mut exti, Edge::RisingFalling);
 
+
+    // Setup MIDI DMA Stream
+    let dma1 = StreamsTuple::new(peripherals.DMA1);
 
 
     let clk_out = gpioc.pc15.into_push_pull_output_in_state(PinState::Low);
@@ -96,7 +110,7 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
             peripherals.SPI2,
             (spi2_sck, spi2_miso, spi2_mosi),
             MODE_3,
-            1.MHz(),
+            10.MHz(),
             &ccdr,
         ),
         spi2_disp_a0,
@@ -118,7 +132,17 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     display.reset(&mut spi2_disp_rst, &mut delay).unwrap();
     display.flush().unwrap();
     display.set_display_on(true).unwrap();
-    display.clear(BinaryColor::Off).unwrap();
+    display.clear(BinaryColor::Off).unwrap();    
+
+    // Setup midi interface
+    let mut uart4 = peripherals.UART4.rx(
+        midi_in,
+        hal::serial::Config::default().baudrate(31_250.bps()).dma(DmaConfig::Rx),
+        &ccdr,
+    )
+    .unwrap();
+    uart4.listen_idle();
+
     Hardware {
         ui: UI {
             switches: Switches::new(spi1, spi1_rclk_ld),
@@ -128,7 +152,9 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
         clk_in,
         clk_out,
         spi3,
+        midi: uart4,
         io_sync: spi3_sync,
         io_rclk: spi3_rclk,
+        dma1,
     }
 }

@@ -34,6 +34,7 @@ embedded-hal-bus = { version = "0.1.0", features = ["async", "defmt-03"] }
 critical-section = "1.1.2"
 futures = { version = "0.3.30", default-features = false, features = ["async-await"] }
 ringbuffer = { version = "0.15.0", default-features = false }
+midly = { version = "0.5.3", default-features = false }
 
 # cargo build/run
 [profile.dev]

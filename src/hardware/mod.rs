@@ -9,8 +9,10 @@ use hal::gpio::{Edge, ExtiPin, Input, Output, Pin, PinState};
 use hal::pac::{DMA1, UART4};
 use hal::prelude::*;
 use hal::spi::{Spi, Spi3};
+use hal::time::Bps;
 use hal::uart::config::DmaConfig;
 use hal::serial::Rx;
+use hal::uart::{Config, Event, Serial};
 use st7565::displays::DOGL128_6_EXT12V;
 use st7565::{GraphicsPageBuffer, ST7565};
 use stm32f4xx_hal as hal;
@@ -35,7 +37,7 @@ pub struct Hardware {
     pub spi3: Spi3,
     //pub io: IO<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
     //            Pin<'D', 2, Output>>,
-    pub midi: Rx<UART4>,
+    pub midi: Serial<UART4>,
     pub io_sync: Pin<'A', 15, Output>,
     pub io_rclk: Pin<'D', 2, Output>,
     pub dma1: StreamsTuple<DMA1>,
@@ -51,7 +53,7 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     let mut exti = peripherals.EXTI;
 
     let gpioa = peripherals.GPIOA.split();
-    let mut midi_out = gpioa.pa0;
+    let mut midi_out = gpioa.pa0.into_alternate();
     let mut midi_in = gpioa.pa1.into_alternate();
 
     let mut clk_in = gpioa.pa8.into_input();
@@ -135,13 +137,8 @@ pub fn setup(peripherals: hal::pac::Peripherals) -> Hardware {
     display.clear(BinaryColor::Off).unwrap();    
 
     // Setup midi interface
-    let mut uart4 = peripherals.UART4.rx(
-        midi_in,
-        hal::serial::Config::default().baudrate(31_250.bps()).dma(DmaConfig::Rx),
-        &ccdr,
-    )
-    .unwrap();
-    uart4.listen_idle();
+    let mut uart4 = Serial::new(peripherals.UART4, (midi_out, midi_in), Config::default().baudrate(Bps(31250)), &ccdr).unwrap().with_u8_data();
+    uart4.listen(Event::RxNotEmpty);
 
     Hardware {
         ui: UI {

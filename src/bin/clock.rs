@@ -22,13 +22,14 @@ mod app {
     use embedded_hal::spi::SpiDevice;
     use embedded_hal_bus::spi::{NoDelay, RefCellDevice};
     use fugit::TimerDurationU64;
+    use hal::prelude::_embedded_hal_serial_nb_Read;
     use hal::{
         ReadFlags, ClearFlags,
         dma::{
             config::DmaConfig, DmaFlag, PeripheralToMemory, Stream2, traits::DmaFlagExt,
             Transfer,
         },
-        serial::Rx,
+        serial::{Serial, Rx, Tx},
         gpio::{ExtiPin, Output, Pin},
     };
     use hal::{serial::RxISR, spi::Spi3};
@@ -58,19 +59,10 @@ mod app {
     const CAPACITY: usize = 16;
     const MIDI_BUFFER_SIZE: usize = 128;
 
-    type MidiRxTransfer = Transfer<
-        Stream2<DMA1>,
-        4,
-        Rx<UART4>,
-        PeripheralToMemory,
-        &'static mut [u8; MIDI_BUFFER_SIZE],
-    >;
     #[shared]
     struct Shared {
         disp: DisplayType,
         clk: Clock<TIMER_FREQ>,
-        #[lock_free]
-        midi_rx_transfer: MidiRxTransfer,
     }
     #[local]
     struct Local {
@@ -83,8 +75,8 @@ mod app {
             Sender<'static, ClockMessage<TIMER_FREQ>, CAPACITY>,
         clock_sender_midi: Sender<'static, ClockMessage<TIMER_FREQ>, CAPACITY>,
         midi_sender: Sender<'static, (u8, MidiMessage), CAPACITY>,
-        midi_rx_buffer: Option<&'static mut [u8; MIDI_BUFFER_SIZE]>,
         midi_stream: midly::stream::MidiStream,
+        midi: Serial<UART4>,
         dio: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
         dac: Ad57xxShared<
             RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
@@ -124,33 +116,11 @@ mod app {
         .unwrap();
 
         defmt::info!("MIDI setup");
-        // Note! It is better to use memory pools, such as heapless::pool::Pool.
-        // But it not work with embedded_dma yet. See CHANGELOG of unreleased main branch and issue https://github.com/japaric/heapless/pull/362 for details.
-        let midi_rx_buffer1 =
-            cortex_m::singleton!(: [u8; MIDI_BUFFER_SIZE] = [0; MIDI_BUFFER_SIZE])
-                .unwrap();
-        let midi_rx_buffer2 =
-            cortex_m::singleton!(: [u8; MIDI_BUFFER_SIZE] = [0; MIDI_BUFFER_SIZE])
-                .unwrap();
 
-        let mut midi_rx_transfer = Transfer::init_peripheral_to_memory(
-            hardware.dma1.2,
-            hardware.midi,
-            midi_rx_buffer1,
-            None,
-            DmaConfig::default()
-                .memory_increment(true)
-                .fifo_enable(true)
-                .fifo_error_interrupt(true)
-                .transfer_complete_interrupt(true),
-        );
-
-        midi_rx_transfer.start(|_rx|{});
         (
             Shared {
                 disp: hardware.ui.display,
                 clk: Clock::default(),
-                midi_rx_transfer,
             },
             Local {
                 clk_in: hardware.clk_in,
@@ -163,7 +133,7 @@ mod app {
                 midi_stream: MidiStream::new(),
                 dio: spi_dev2,
                 dac,
-                midi_rx_buffer: Some(midi_rx_buffer2),
+                midi: hardware.midi,
             },
         )
     }
@@ -188,9 +158,11 @@ mod app {
     #[task( 
         priority = 1,
         local = [
-        dac, 
+        dac,
+        dio,
         gates: [u8;2] = [0;2], 
-        notes: MaybeUninit<[FnvIndexMap<u8,u8,8>;16]> = MaybeUninit::uninit()]
+        channel_notes: MaybeUninit<[FnvIndexMap<u8,u8,8>;16]> = MaybeUninit::uninit(),
+        channel_pitchbend: [f32; 16] = [0.0;16]]
         )]
     async fn midi_msg_handler(
         cx: midi_msg_handler::Context,
@@ -198,45 +170,61 @@ mod app {
     ) {
         let midi_msg_handler::LocalResources {
             dac,
+            dio,
             gates,
-            notes: channel_notes,
+            channel_notes,
+            channel_pitchbend,
             ..
         } = cx.local;
         
-        // Assume init is unsafe, we have to initialize the MaybeUnint before using it.
+        // Assume init is unsafe, we have to initialize the MaybeUninit before using it. This
+        // IndexMap stores velocities with the midi note as key.
         let ch_notes = unsafe{ channel_notes.assume_init_mut().fill(FnvIndexMap::<u8,u8,8>::new()); channel_notes.assume_init_mut()}; 
 
         loop {
             while !receiver.is_empty() {
                 let (ch, msg) = receiver.recv().await.unwrap();
+                let ch = usize::from(ch);
                         match msg {
                             MidiMessage::NoteOff{key,vel}=>{
-                                let(ch, key,vel)=(usize::from(ch), u8::from(key),u8::from(vel));
+                                let(key,vel)=(u8::from(key),u8::from(vel));
                                 defmt::info!("CH: {}, NOTE OFF: {}, {}",ch,key,vel);
-                                //ch_notes[usize::from(ch)].remove(&key);
-                                gates[ch/8] &= !(1 << ch%8);
+                                ch_notes[usize::from(ch)].remove(&key);
                             },
                             MidiMessage::NoteOn{key,vel}=>{
-                                let(ch, key,vel)=(usize::from(ch), u8::from(key),u8::from(vel));
+                                let(key,vel)=(u8::from(key),u8::from(vel));
                                 if vel==0{
                                     defmt::info!("CH: {}, NOTE OFF: {}, {}",ch,key,vel);
-                                    //ch_notes[usize::from(ch)].remove(&key);
-                                    gates[ch/8] &= !(1 << ch%8);
+                                    ch_notes[ch].remove(&key);
                                 }
                                 else{
                                     defmt::info!("CH: {}, NOTE ON: {}, {}",ch,key,vel);
-                                    //ch_notes[usize::from(ch)].insert(key,vel).unwrap();
-                                    gates[ch/8] |= 1 << ch%8;
+                                    ch_notes[ch].insert(key,vel).unwrap();
                                 }
                             },
-                            _ => {},
+                            MidiMessage::Controller { controller: _, value: _ } => {
+
+                            }
+                            MidiMessage::PitchBend { bend } => {
+                                channel_pitchbend[ch] = bend.as_f32();
+                            }
+                            MidiMessage::Aftertouch { key, vel } => {
+                                let(key,vel)=(u8::from(key),u8::from(vel));
+                                if let Some(v) = ch_notes[ch].get_mut(&key){
+                                    *v = vel;
+                                }
+                            },
+                            MidiMessage::ChannelAftertouch { vel } => {
+                                ch_notes[ch].iter_mut().for_each(|(_, v)|{
+                                        *v = vel.into();
+                                })
+                            }
+                           _ => {},
 
                 }
 
             }
-            //dio.write(gates).unwrap();
 
-            /*
             ch_notes.iter().enumerate().for_each(|(i, notes)|{
                 if notes.is_empty(){
                     gates[i/8] &= !(0b1 << i%8);
@@ -245,18 +233,17 @@ mod app {
                     gates[i/8] |= 0b1 << i%8;
                 }
             });
-            */
-            /*
             ch_notes
                 .iter()
                 .take(4)
                 .enumerate()
                 .for_each(|(i, notes)| {
                     if let Some((note, _vel)) = notes.last() {
-                    let val: u16 = u16::from(*note)
+                    let mut val: u16 = u16::from(*note)
                         .clamp(0, 120)
                         .checked_mul(546u16)
                         .unwrap();
+                    val += (546.0*channel_pitchbend[i]) as u16;
                     match i {
                         0 => {
                             dac.set_dac_output(
@@ -290,7 +277,7 @@ mod app {
                     }
                     }
                 });
-                */
+            dio.write(gates).unwrap();
         }
     }
 
@@ -352,49 +339,18 @@ mod app {
         cx.local.clock_sender_exti9_5.try_send(sm).unwrap();
     }
 
-    #[task(binds = UART4, priority = 3, local = [dio, midi_stream, midi_sender, clock_sender_midi, midi_rx_buffer, gates: [u8;2] = [0;2]], shared = [midi_rx_transfer])]
-    fn uart4_handler(mut cx: uart4_handler::Context) {
-        let transfer = &mut cx.shared.midi_rx_transfer;
-        let gates = cx.local.gates;
+    #[task(binds = UART4, priority = 3, 
+           local = [midi, midi_stream, midi_sender, clock_sender_midi, gates: [u8;2] = [0;2], rx_buffer: [u8; 16] = [0; 16]])]
+    fn uart4_handler(cx: uart4_handler::Context) {
+        let transfer = cx.local.midi;
 
-        if transfer.is_idle() {
-            let bytes_count =
-                MIDI_BUFFER_SIZE - transfer.number_of_transfers() as usize;
-            let new_buffer = cx.local.midi_rx_buffer.take().unwrap();
-
-            let (buffer, _) = transfer.next_transfer(new_buffer).unwrap();
-
-            let bytes = &buffer[..bytes_count];
-
-            cx.local.midi_stream.feed(bytes, |ev| match ev {
+        while transfer.is_rx_not_empty() {
+            let byte = transfer.read().unwrap();
+            cx.local.midi_stream.feed(&[byte], |ev| match ev {
                 midly::live::LiveEvent::Midi { channel, message } => {
-
-                    match message {
-                            MidiMessage::NoteOff{key,vel}=>{
-                                let(ch, key,vel)=(u8::from(channel), u8::from(key),u8::from(vel));
-                                defmt::info!("CH: {}, NOTE OFF: {}, {}",ch,key,vel);
-                                //ch_notes[usize::from(ch)].remove(&key);
-                                gates[usize::from(ch)/8] &= !(1 << ch%8);
-                            },
-                            MidiMessage::NoteOn{key,vel}=>{
-                                let(ch, key,vel)=(u8::from(channel), u8::from(key),u8::from(vel));
-                                if vel==0{
-                                    defmt::info!("CH: {}, NOTE OFF: {}, {}",ch,key,vel);
-                                    //ch_notes[usize::from(ch)].remove(&key);
-                                    gates[usize::from(ch)/8] &= !(1 << ch%8);
-                                }
-                                    else{
-                                    defmt::info!("CH: {}, NOTE ON: {}, {}",ch,key,vel);
-                                    //ch_notes[usize::from(ch)].insert(key,vel).unwrap();
-                                    gates[usize::from(ch)/8] |= 1 << ch%8;
-                                }
-                            },
-                            _ => {},
-
-                     }
-                    cx.local.dio.write(gates).unwrap();
+                    cx.local.midi_sender.try_send((channel.into(), message)).unwrap();
                 },
-                midly::live::LiveEvent::Common(_) => {}
+                midly::live::LiveEvent::Common(_) => { },
                 midly::live::LiveEvent::Realtime(rt) => match rt {
                 midly::live::SystemRealtime::TimingClock => {
                         /*
@@ -419,60 +375,9 @@ mod app {
                     midly::live::SystemRealtime::Undefined(_) => todo!(),
                 },
             });
-
-            // Free local buffer
-            *cx.local.midi_rx_buffer = Some(buffer);
         }
-
-        /*
-        while cx.local.midi.is_rx_not_empty() {
-            let c = cx.local.midi.read().unwrap();
-            cx.local.midi_stream.feed(&[c], |ev| match ev {
-                midly::live::LiveEvent::Midi { channel, message } => {
-                    cx.local
-                        .midi_sender
-                        .try_send((u8::from(channel), message))
-                        .unwrap();
-                }
-                midly::live::LiveEvent::Common(_) => {}
-                midly::live::LiveEvent::Realtime(rt) => match rt {
-                    midly::live::SystemRealtime::TimingClock => {
-                        cx.local.clock_sender_midi.try_send(ClockMessage::Sync(TempoTimer::now(), ClockSource::MIDI)).unwrap();
-                    },
-                    midly::live::SystemRealtime::Start => {
-                        //cx.local.clock_sender_midi.try_send(ClockMessage::Sync(TempoTimer::now(), ClockSource::MIDI)).unwrap();
-                    },
-                    midly::live::SystemRealtime::Continue => todo!(),
-                    midly::live::SystemRealtime::Stop => todo!(),
-                    midly::live::SystemRealtime::ActiveSensing => todo!(),
-                    midly::live::SystemRealtime::Reset => todo!(),
-                    midly::live::SystemRealtime::Undefined(_) => todo!(),
-                },
-            });
-        }
-        if cx.local.midi.is_idle() {
-            cx.local.midi.clear_idle_interrupt();
-            cx.local.midi.unlisten(Event::Idle);
-            defmt::info!("uart idle")
-        }
-        */
     }
 
-    #[task(binds = DMA1_STREAM2, priority = 3, shared = [midi_rx_transfer])]
-    fn dma1_stream2(mut cx: dma1_stream2::Context) {
-        let transfer = cx.shared.midi_rx_transfer;
-
-        let flags = transfer.flags();
-        transfer.clear_flags(DmaFlag::FifoError | DmaFlag::TransferComplete);
-            if flags.is_transfer_complete(){
-                defmt::info!("NO IDLE")
-     // Buffer is full, but no IDLE received!
-            // You can process this data or discard data (ignore transfer complete interrupt and wait IDLE).
-
-            // Note! If you want process this data, it is recommended to use double buffering.
-            // See Transfer::init_peripheral_to_memory for details.
-            }
-    }
     #[task(binds = EXTI15_10, local = [start_stop_in, clock_sender_exti15_10])]
     fn start_stop_in_handler(cx: start_stop_in_handler::Context) {
         if cx.local.start_stop_in.check_interrupt() {

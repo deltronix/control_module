@@ -11,7 +11,7 @@ defmt = { version = "0.3", features = ["encoding-rzcobs"] }
 defmt-brtt = { version = "0.1", default-features = false, features = ["rtt"] }
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 # RTIC
-rtic = { version = "2.0.1", features = ["cortex-m", "rtic-monotonics", "thumbv7-backend"] }
+rtic = { version = "2.1.1", features = ["cortex-m", "rtic-monotonics", "thumbv7-backend"] }
 rtic-sync = "1.2.0"
 rtic-monotonics = "1.5.0"
 # HAL

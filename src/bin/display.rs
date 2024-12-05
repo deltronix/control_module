@@ -18,6 +18,7 @@ use embedded_graphics::{
 use core::fmt::Write;
 use embedded_graphics::mono_font::iso_8859_1::FONT_9X15;
 use embedded_graphics::mono_font::iso_8859_10::FONT_5X7;
+use embedded_graphics_framebuf::FrameBuf;
 use embedded_hal::spi::MODE_3;
 use heapless::String;
 use rtic::app;
@@ -25,7 +26,7 @@ use rtic_monotonics::systick::fugit::TimerInstantU32;
 use rtic_monotonics::systick::*;
 use rtic_monotonics::Monotonic;
 use st7565::{
-    displays::DOGL128_6_EXT12V, GraphicsMode, GraphicsPageBuffer, ST7565,
+    displays::DOGL128_6_EXT12V, modes::GraphicsMode, GraphicsPageBuffer, ST7565,
 };
 use stm32f4xx_hal::gpio::{Output, Pin};
 use stm32f4xx_hal::prelude::*;
@@ -118,6 +119,7 @@ mod app {
             cx.local.page_buffer.insert(GraphicsPageBuffer::new());
         let mut display = ST7565::new(disp_spi, DOGL128_6_EXT12V)
             .into_graphics_mode(page_buffer);
+
         display.reset(&mut spi2_disp_rst, &mut timer).unwrap();
         display.flush().unwrap();
         display.set_display_on(true).unwrap();

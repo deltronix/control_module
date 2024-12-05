@@ -1,12 +1,12 @@
 use embedded_graphics::{
     mono_font::{ascii::FONT_6X9, MonoTextStyle},
-    pixelcolor::{BinaryColor, PixelColor},
+    pixelcolor::{PixelColor},
     prelude::*,
     primitives::{Rectangle, PrimitiveStyle},
     text::Text,
+    Drawable,
 };
 
-use tempo_clock::clock::Clock;
 
 
 struct Button<'a, C: PixelColor> {

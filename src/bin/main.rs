@@ -34,10 +34,7 @@ mod app {
     struct Local<'a> {
         ui_fsm: StateMachine<UiStateMachine>,
         spi_dev2: RefCellDevice<'static, Spi3, Pin<'D', 2, Output>, NoDelay>,
-        dac: Ad57xxShared<
-            RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>,
-            ad57xx::marker::Ad57x4,
-        >,
+        dac: Ad57xxShared<RefCellDevice<'static, Spi3, Pin<'A', 15, Output>, NoDelay>, ad57xx::marker::Ad57x4>,
     }
     #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
@@ -60,49 +57,31 @@ mod app {
 
         // Setup ui state machine
         let ui_fsm = UiStateMachine::new().state_machine();
-        let (event_channel_sender, event_channel_receiver) =
-            make_channel!(UiEvent, CAPACITY);
+        let (event_channel_sender, event_channel_receiver) = make_channel!(UiEvent, CAPACITY);
 
         ev_handler::spawn(event_channel_receiver).unwrap();
         read_ui::spawn(event_channel_sender.clone()).unwrap();
         io::spawn().unwrap();
         dio::spawn([0x00; 2]).unwrap();
 
-        (
-            Shared { ui: hardware.ui },
-            Local {
-                ui_fsm,
-                dac,
-                spi_dev2,
-            },
-        )
+        (Shared { ui: hardware.ui }, Local { ui_fsm, dac, spi_dev2 })
     }
     #[task(local = [dac])]
     async fn io(cx: io::Context) {
         let dac = cx.local.dac;
-        dac.set_power(ad57xx::ad57x4::ChannelQuad::AllDacs, true)
+        dac.set_power(ad57xx::ad57x4::ChannelQuad::AllDacs, true).unwrap();
+        dac.set_output_range(ad57xx::ad57x4::ChannelQuad::AllDacs, ad57xx::OutputRange::Bipolar5V)
             .unwrap();
-        dac.set_output_range(
-            ad57xx::ad57x4::ChannelQuad::AllDacs,
-            ad57xx::OutputRange::Bipolar5V,
-        )
-        .unwrap();
-        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacA, 0x8000)
-            .unwrap();
-        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacB, 0x0000)
-            .unwrap();
-        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacC, 0xFFFF)
-            .unwrap();
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacA, 0x8000).unwrap();
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacB, 0x0000).unwrap();
+        dac.set_dac_output(ad57xx::ad57x4::ChannelQuad::DacC, 0xFFFF).unwrap();
     }
     #[task(local = [spi_dev2])]
     async fn dio(cx: dio::Context, tx: [u8; 2]) {
         cx.local.spi_dev2.write(&tx).unwrap();
     }
     #[task(shared = [ui])]
-    async fn read_ui(
-        mut cx: read_ui::Context,
-        mut sender: Sender<'static, UiEvent, CAPACITY>,
-    ) {
+    async fn read_ui(mut cx: read_ui::Context, mut sender: Sender<'static, UiEvent, CAPACITY>) {
         loop {
             Systick::delay(1.millis()).await;
             cx.shared.ui.lock(|ui| {
@@ -116,10 +95,7 @@ mod app {
         }
     }
     #[task(local = [ui_fsm], shared = [ui])]
-    async fn ev_handler(
-        mut cx: ev_handler::Context,
-        mut receiver: Receiver<'static, UiEvent, CAPACITY>,
-    ) {
+    async fn ev_handler(mut cx: ev_handler::Context, mut receiver: Receiver<'static, UiEvent, CAPACITY>) {
         loop {
             let ev = receiver.recv().await.unwrap();
             cx.shared.ui.lock(|ui| {

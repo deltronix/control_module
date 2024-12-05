@@ -4,7 +4,7 @@ use super::switches::{SwitchId, SwitchState, Switches, UiEvent};
 use defmt::Format;
 use statig::prelude::*;
 
-#[derive(Clone, Copy, Eq, PartialEq, Format, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 enum View {
     Switch(&'static View),
     Project,
@@ -26,9 +26,7 @@ pub struct UiStateMachine {
 #[state_machine(initial = "State::idle()")]
 impl UiStateMachine {
     pub fn new() -> Self {
-        Self {
-            view: View::Overview,
-        }
+        Self { view: View::Overview }
     }
     #[state]
     fn idle(event: &UiEvent) -> Response<State> {
@@ -37,10 +35,9 @@ impl UiStateMachine {
                 defmt::info!("{}: {}", id, s);
                 if *s == SwitchState::Pressed {
                     match *id {
-                        SwitchId::Project
-                        | SwitchId::Part
-                        | SwitchId::Lane
-                        | SwitchId::Step => Transition(State::view_switch()),
+                        SwitchId::Project | SwitchId::Part | SwitchId::Lane | SwitchId::Step => {
+                            Transition(State::view_switch())
+                        }
                         SwitchId::CopyLoad => todo!(),
                         SwitchId::PasteSave => todo!(),
                         SwitchId::Select => todo!(),
@@ -61,11 +58,7 @@ impl UiStateMachine {
         }
     }
     #[state]
-    fn view_switch(
-        &mut self,
-        event: &UiEvent,
-        context: &mut UI,
-    ) -> Response<State> {
+    fn view_switch(&mut self, event: &UiEvent, context: &mut UI) -> Response<State> {
         let view = match event {
             UiEvent::SwitchEvent(id, _) => match id {
                 SwitchId::Project => {

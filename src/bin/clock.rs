@@ -3,7 +3,7 @@
 #![feature(type_alias_impl_trait)]
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_array_assume_init)]
-#![feature(const_maybe_uninit_uninit_array)]
+// #![feature(const_maybe_uninit_uninit_array)]
 use control_module::{self as _};
 use rtic::app;
 
@@ -24,12 +24,7 @@ mod app {
     use fugit::TimerDurationU64;
     use hal::prelude::_embedded_hal_serial_nb_Read;
     use hal::{
-        ReadFlags, ClearFlags,
-        dma::{
-            config::DmaConfig, DmaFlag, PeripheralToMemory, Stream2, traits::DmaFlagExt,
-            Transfer,
-        },
-        serial::{Serial, Rx, Tx},
+        serial::Serial,
         gpio::{ExtiPin, Output, Pin},
     };
     use hal::{serial::RxISR, spi::Spi3};
@@ -41,7 +36,7 @@ mod app {
     use rtic_sync::{channel::*, make_channel};
     use stm32f4xx_hal as hal;
     use stm32f4xx_hal::pac::UART4;
-    use stm32f4xx_hal::pac::DMA1;
+    
 
     use embedded_graphics::{
         mono_font::{ascii::FONT_5X8, MonoTextStyle},
@@ -57,7 +52,6 @@ mod app {
     type Duration = TimerDurationU64<84_000_000>;
 
     const CAPACITY: usize = 16;
-    const MIDI_BUFFER_SIZE: usize = 128;
 
     #[shared]
     struct Shared {
@@ -85,24 +79,19 @@ mod app {
     }
     #[init(local = [spi_bus: MaybeUninit<RefCell<Spi3>> = MaybeUninit::uninit()])]
     fn init(cx: init::Context) -> (Shared, Local) {
-        defmt::info!("Initializing...");
-
         // Initialize hardware
+        defmt::info!("Initializing...");
         let hardware = control_module::hardware::setup(cx.device);
 
-        defmt::info!("Tempo timer setup");
         // Setup TempoTimer
+        defmt::info!("Tempo timer setup");
         TempoTimer::start();
         let (clock_sender, clock_channel_receiver) =
             make_channel!(ClockMessage<TIMER_FREQ>, CAPACITY);
         transport::spawn(clock_channel_receiver).unwrap();
 
-        let (midi_sender, midi_receiver) =
-            make_channel!((u8, MidiMessage), CAPACITY);
-        midi_msg_handler::spawn(midi_receiver).unwrap();
-
-        defmt::info!("IO setup");
         // Setup digital and analog io
+        defmt::info!("IO setup");
         let spi_bus = cx.local.spi_bus.write(RefCell::new(hardware.spi3));
         let spi_dev1 = RefCellDevice::new(spi_bus, hardware.io_sync, NoDelay);
         let spi_dev2 = RefCellDevice::new(spi_bus, hardware.io_rclk, NoDelay);
@@ -115,7 +104,11 @@ mod app {
         )
         .unwrap();
 
+
         defmt::info!("MIDI setup");
+        let (midi_sender, midi_receiver) =
+            make_channel!((u8, MidiMessage), CAPACITY);
+        midi_msg_handler::spawn(midi_receiver).unwrap();
 
         (
             Shared {
@@ -179,7 +172,7 @@ mod app {
         
         // Assume init is unsafe, we have to initialize the MaybeUninit before using it. This
         // IndexMap stores velocities with the midi note as key.
-        let ch_notes = unsafe{ channel_notes.assume_init_mut().fill(FnvIndexMap::<u8,u8,8>::new()); channel_notes.assume_init_mut()}; 
+        let ch_notes = unsafe{ channel_notes.assume_init_mut().fill(FnvIndexMap::<u8,u8,8>::new()); channel_notes.assume_init_mut()};
 
         loop {
             while !receiver.is_empty() {
@@ -203,7 +196,6 @@ mod app {
                                 }
                             },
                             MidiMessage::Controller { controller: _, value: _ } => {
-
                             }
                             MidiMessage::PitchBend { bend } => {
                                 channel_pitchbend[ch] = bend.as_f32();
@@ -220,7 +212,6 @@ mod app {
                                 })
                             }
                            _ => {},
-
                 }
 
             }
@@ -286,6 +277,9 @@ mod app {
         cx.local.clk_out.set_low();
         TempoTimer::delay(Duration::micros(100)).await;
         cx.local.clk_out.set_high();
+
+
+
     }
 
     #[task(shared = [clk], priority = 2)]
@@ -350,7 +344,16 @@ mod app {
                 midly::live::LiveEvent::Midi { channel, message } => {
                     cx.local.midi_sender.try_send((channel.into(), message)).unwrap();
                 },
-                midly::live::LiveEvent::Common(_) => { },
+                midly::live::LiveEvent::Common(cmn) => { 
+                match cmn {
+                    midly::live::SystemCommon::SysEx(_) => todo!(),
+                    midly::live::SystemCommon::MidiTimeCodeQuarterFrame(_, _) => todo!(),
+                    midly::live::SystemCommon::SongPosition(_) => todo!(),
+                    midly::live::SystemCommon::SongSelect(_) => todo!(),
+                    midly::live::SystemCommon::TuneRequest => todo!(),
+                    midly::live::SystemCommon::Undefined(_, _) => todo!(),
+                }
+                },
                 midly::live::LiveEvent::Realtime(rt) => match rt {
                 midly::live::SystemRealtime::TimingClock => {
                         /*

@@ -5,14 +5,14 @@ set -e
 project="test-app"
 
 cleanup() {
-    echo "Cleaning up"
-    mv Cargo.toml.tmp Cargo.toml
-    mv .cargo/config.toml.tmp .cargo/config.toml
+  echo "Cleaning up"
+  mv Cargo.toml.tmp Cargo.toml
+  mv .cargo/config.toml.tmp .cargo/config.toml
 }
 
 if [ "$1" = "cleanup" ]; then
-    cleanup
-    exit 1
+  cleanup
+  exit 1
 fi
 
 echo "Installing necessary tools"
@@ -37,12 +37,9 @@ echo "Performing steps"
 sd -s -- '--chip $CHIP' '--chip nRF52840_xxAA' .cargo/config.toml
 sd -s '# target = "thumbv7em-none-eabihf"' 'target = "thumbv7em-none-eabihf"' .cargo/config.toml
 sd -s '$RTIC_BACKEND' 'thumbv7-backend' Cargo.toml
-sd -s 'some-hal = "1.2.3"' 'nrf52840-hal = "0.16.0"' Cargo.toml
-sd -s 'use some_hal as _;' 'use nrf52840_hal as _;' src/lib.rs
-sd -s 'some_hal::pac' 'nrf52840_hal::pac' src/bin/minimal.rs
-sd -s 'FreeInterrupt1, ...' 'SWI0_EGU0' src/bin/minimal.rs
 
 cargo bbr minimal
 
 cd ..
 cleanup
+
